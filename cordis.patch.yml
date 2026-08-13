@@ -1,0 +1,4 @@
+# Mount DeepSeek Harness Lark Bridge in any DSH profile that installs this package.
+- insert:
+    - id: dsh-lark-bridge
+      name: dsh-lark-bridge

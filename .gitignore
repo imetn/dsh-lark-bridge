@@ -1,0 +1,6 @@
+node_modules/
+coverage/
+.dsh-lark-bridge/
+.env
+.DS_Store
+*.log
