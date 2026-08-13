@@ -270,7 +270,7 @@ pnpm run check
 pnpm pack
 ```
 
-`pnpm run check` 会执行 TypeScript 检查、26 项单元/契约测试、生产构建，以及对构建后 Cordis 插件的真实导入检查。覆盖官方发现元数据、配置不变量、Project/话题身份、卡片操作、权限交集、附件边界、UTF-8 文件上限和 Loader 导出契约。
+`pnpm run check` 会执行 TypeScript 检查、27 项单元/契约测试、生产构建，以及对构建后 Cordis 插件的真实导入检查。覆盖官方发现元数据、Agent 作用域提问工具、配置不变量、Project/话题身份、卡片操作、权限交集、附件边界、UTF-8 文件上限和 Loader 导出契约。
 
 ## 故障排查
 

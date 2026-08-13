@@ -8,6 +8,7 @@ import { createUserMessage, type ContentBlock } from '@deepseek-ai/dsh-llm'
 import { SessionId, type Session, type SessionEvent, type SessionHeader } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-persistence'
 import type {} from '@deepseek-ai/dsh-system-prompt'
+import * as toolAskUser from '@deepseek-ai/dsh-tool-ask-user'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ApprovalOutcome, ApprovalRequest } from '@deepseek-ai/dsh-user-approval'
 import type {
@@ -642,7 +643,7 @@ export class LarkBridge {
       replyInThread: this.shouldReplyInThread(message),
     }
     const selection = this.modelSelection(project)
-    const setup = (agentCtx: Context) => this.setupAgent(agentCtx, route, project)
+    const setup = async (agentCtx: Context) => this.setupAgent(agentCtx, route, project)
     const handle = latest === undefined
       ? await this.ctx.agents.create({
         sessionId: this.nextSessionId(prefix),
@@ -680,9 +681,10 @@ export class LarkBridge {
     }
   }
 
-  private setupAgent(agentCtx: Context, route: RouteContext, project: ResolvedProject): void {
+  private async setupAgent(agentCtx: Context, route: RouteContext, project: ResolvedProject): Promise<void> {
     const channel = this.channel
     const config = this.config
+    await agentCtx.plugin(toolAskUser)
     agentCtx.systemPrompt.section({
       name: 'tool:lark-deliver',
       order: 118,
@@ -777,7 +779,7 @@ export class LarkBridge {
       sessionId: this.nextSessionId(entry.prefix),
       meta: { cwd: entry.project.cwd },
       agentOptions: selection,
-      setup: agentCtx => this.setupAgent(agentCtx, entry.route, entry.project),
+      setup: async agentCtx => this.setupAgent(agentCtx, entry.route, entry.project),
     })
     entry.handle = handle
     entry.sessionId = String(handle.agent.id)
@@ -796,7 +798,7 @@ export class LarkBridge {
     const handle = await this.ctx.agents.resume({
       resumeSessionId: header.id,
       agentOptions: this.modelSelection(entry.project),
-      setup: agentCtx => this.setupAgent(agentCtx, entry.route, entry.project),
+      setup: async agentCtx => this.setupAgent(agentCtx, entry.route, entry.project),
     })
     entry.handle = handle
     entry.sessionId = String(handle.agent.id)

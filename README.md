@@ -270,7 +270,7 @@ pnpm run check
 pnpm pack
 ```
 
-`pnpm run check` runs TypeScript checking, 26 unit/contract tests, the production bundle, and an import check against the built Cordis plugin. Coverage includes official discovery metadata, configuration invariants, Project/topic identity, card actions, access intersections, attachment boundaries, UTF-8 spill limits, and the Loader export contract.
+`pnpm run check` runs TypeScript checking, 27 unit/contract tests, the production bundle, and an import check against the built Cordis plugin. Coverage includes official discovery metadata, Agent-scoped question tooling, configuration invariants, Project/topic identity, card actions, access intersections, attachment boundaries, UTF-8 spill limits, and the Loader export contract.
 
 ## Troubleshooting
 
