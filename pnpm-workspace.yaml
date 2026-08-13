@@ -3,6 +3,7 @@ packages:
 nodeLinker: hoisted
 allowBuilds:
   esbuild: true
+  protobufjs: true
 minimumReleaseAgeExclude:
   - '@deepseek-ai/cordis-plugin-loader@1.0.2'
   - '@deepseek-ai/cordis@4.0.1'
