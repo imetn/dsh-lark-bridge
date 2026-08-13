@@ -209,6 +209,7 @@ dsh --profile lark
 | `/status` | 查看连接、Project、模型、cwd、Session 与交互状态 |
 | `/new` | 为当前来源创建全新 Session |
 | `/stop` | 取消当前任务 |
+| `/approve` / `/reject` | 处理当前一次工具审批；卡片回调不可用时的文字兜底 |
 | `/steer <内容>` | 在任务运行中把补充或纠正送到最近一步 |
 | `/sessions` | 列出属于当前飞书来源的历史 Session |
 | `/resume <session-id>` | 恢复属于当前飞书来源的 Session |
@@ -218,7 +219,7 @@ dsh --profile lark
 | `/commands` | 列出 Harness 原生命令 |
 | 其他 `/命令` | 转发给 Harness 命令注册表 |
 
-运行卡片带“停止任务”；完成卡片带“新会话”“查看状态”和视图切换。审批卡片只生效一次；提问卡片支持单选、多选与直接文字回答。
+运行卡片带“停止任务”；完成卡片带“新会话”“查看状态”和视图切换。审批卡片只生效一次，也可用 `/approve` 或 `/reject` 作答；提问卡片支持单选、多选与直接文字回答。
 
 ## 配置参考
 
@@ -270,13 +271,13 @@ pnpm run check
 pnpm pack
 ```
 
-`pnpm run check` 会执行 TypeScript 检查、27 项单元/契约测试、生产构建，以及对构建后 Cordis 插件的真实导入检查。覆盖官方发现元数据、Agent 作用域提问工具、配置不变量、Project/话题身份、卡片操作、权限交集、附件边界、UTF-8 文件上限和 Loader 导出契约。
+`pnpm run check` 会执行 TypeScript 检查、28 项单元/契约测试、生产构建，以及对构建后 Cordis 插件的真实导入检查。覆盖官方发现元数据、Agent 作用域提问工具、审批文字兜底、配置不变量、Project/话题身份、卡片操作、权限交集、附件边界、UTF-8 文件上限和 Loader 导出契约。
 
 ## 故障排查
 
 - **已连接但收不到消息**：确认应用版本已发布、使用长连接，并添加消息事件与对应权限。
 - **群聊无响应**：确认机器人已入群、消息中 `@机器人`，且该群 `chat_id` 只绑定到一个 Project。
-- **卡片按钮无响应**：在 **回调配置** 而不是事件列表中添加 `card.action.trigger`，并确认操作者通过两层白名单。
+- **卡片按钮无响应**：在 **回调配置** 而不是事件列表中添加 `card.action.trigger`，并确认操作者通过两层白名单；配置完成前，审批可用 `/approve` 或 `/reject`，提问可直接回复文字。
 - **附件接收失败**：确认有 `im:message:readonly`，并检查 `maxInboundFileBytes`。
 - **私聊进入了错误 Project**：先发送 `/projects`，再发送 `/project <id>`。
 - **上下文意外共享或分裂**：保留 `groupSessionScope: thread`，并在目标话题/线程内回复。

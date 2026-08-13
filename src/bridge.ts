@@ -110,6 +110,7 @@ const HELP_TEXT = `## DeepSeek Harness Lark Bridge
 - \`/steer <内容>\`：在运行中把内容送到最近一步
 - \`/status\`：查看连接、模型、目录和会话状态
 - \`/stop\`：停止当前任务
+- \`/approve\` / \`/reject\`：允许或拒绝当前一次工具审批
 - \`/new\`：创建全新会话
 - \`/sessions\`：列出当前飞书会话的历史 Session
 - \`/resume <session-id>\`：恢复一个历史 Session
@@ -494,6 +495,25 @@ export class LarkBridge {
         }
         entry.handle.agent.cancel({ kind: 'user' })
         await this.safeSend(message.chatId, { markdown: '⏹️ 已向当前 Harness 任务发送停止请求。' }, message)
+        return
+      }
+      case '/approve':
+      case '/reject': {
+        const key = originKey(message, this.config.groupSessionScope, project.id)
+        const pending = [...this.pendingApprovals.values()].find(item => (
+          item.entry.key === key
+          && item.expectedOpenId === message.senderId
+          && isAuthorizedAction(item.entry, message.senderId, message.chatId, this.config)
+        ))
+        if (pending === undefined) {
+          await this.safeSend(message.chatId, { markdown: '当前飞书会话没有等待处理的工具审批。' }, message)
+          return
+        }
+        const allowed = command.toLowerCase() === '/approve'
+        this.settleApproval(pending, allowed ? 'allowed-once' : 'rejected')
+        await this.safeSend(message.chatId, {
+          markdown: allowed ? '✅ 已仅允许当前这一次操作。' : '⛔ 已拒绝当前这一次操作。',
+        }, message)
         return
       }
       case '/status': {

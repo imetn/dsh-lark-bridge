@@ -209,6 +209,7 @@ In a group, mention the bot with every command while `requireMention` is enabled
 | `/status` | Show connection, Project, model, cwd, Session, and interaction state |
 | `/new` | Create a fresh Session for the current origin |
 | `/stop` | Cancel the running task |
+| `/approve` / `/reject` | Resolve the current one-shot tool approval; text fallback for unavailable card callbacks |
 | `/steer <text>` | Steer the most recent running Agent step |
 | `/sessions` | List Sessions owned by the current Lark origin |
 | `/resume <session-id>` | Resume a Session owned by the current Lark origin |
@@ -218,7 +219,7 @@ In a group, mention the bot with every command while `requireMention` is enabled
 | `/commands` | List native Harness commands |
 | Any other `/command` | Forward to the Harness command registry |
 
-Running cards include a stop button. Terminal cards include new-Session, status, and view controls. Approval cards are one-shot; question cards support single choice, multiple choice, and free-text replies.
+Running cards include a stop button. Terminal cards include new-Session, status, and view controls. Approval cards are one-shot and also accept `/approve` or `/reject`; question cards support single choice, multiple choice, and free-text replies.
 
 ## Configuration reference
 
@@ -270,13 +271,13 @@ pnpm run check
 pnpm pack
 ```
 
-`pnpm run check` runs TypeScript checking, 27 unit/contract tests, the production bundle, and an import check against the built Cordis plugin. Coverage includes official discovery metadata, Agent-scoped question tooling, configuration invariants, Project/topic identity, card actions, access intersections, attachment boundaries, UTF-8 spill limits, and the Loader export contract.
+`pnpm run check` runs TypeScript checking, 28 unit/contract tests, the production bundle, and an import check against the built Cordis plugin. Coverage includes official discovery metadata, Agent-scoped question tooling, approval fallbacks, configuration invariants, Project/topic identity, card actions, access intersections, attachment boundaries, UTF-8 spill limits, and the Loader export contract.
 
 ## Troubleshooting
 
 - **Connected but no inbound messages:** publish the app version, select long connection, and add the message event plus matching permission.
 - **No group response:** add the bot, mention it, and bind that group's `chat_id` to exactly one Project.
-- **Card buttons do nothing:** add `card.action.trigger` under **Callbacks**, not the message event list, and allow the operator in both relevant allowlists.
+- **Card buttons do nothing:** add `card.action.trigger` under **Callbacks**, not the message event list, and allow the operator in both relevant allowlists. Until then, use `/approve` or `/reject` for approvals and plain text for questions.
 - **Attachment download fails:** add `im:message:readonly` and check `maxInboundFileBytes`.
 - **Wrong Project in DM:** run `/projects`, then `/project <id>`.
 - **Unexpected shared or split context:** keep `groupSessionScope: thread` and reply inside the intended topic/thread.
