@@ -112,7 +112,7 @@ describe('dsh-lark-bridge Loader contract', () => {
     const unwrapped = loader.unwrapExports(plugin) as Record<string, unknown>
     expect(unwrapped).toBe(plugin)
     expect(unwrapped.name).toBe('dsh-lark-bridge')
-    expect(unwrapped.inject).toEqual(['agents', 'agentDefaultModel', 'tools', 'systemPrompt'])
+    expect(unwrapped.inject).toEqual(['agents', 'agentDefaultModel', 'credentials', 'tools', 'systemPrompt'])
     expect(unwrapped.Config).toBeDefined()
     expect(typeof unwrapped.apply).toBe('function')
   })

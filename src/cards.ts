@@ -117,9 +117,7 @@ export function buildTurnCard(input: TurnCardInput): object {
   } as const
   const title = done ? titleByOutcome[input.outcome!] : `⏳ DeepSeek Harness · ${elapsed(input.progress.startedAt, now)}`
   const template: CardTemplate = done ? templateByOutcome[input.outcome!] : 'blue'
-  const elements: object[] = [
-    markdown(`**任务**\n${bounded(redactSecrets(input.progress.prompt), 700)}`),
-  ]
+  const elements: object[] = []
 
   if (input.preset === 'developer') {
     elements.push(markdown(`📦 ${input.project}  ·  📁 ${compactPath(input.cwd)}  ·  🤖 ${input.model}  ·  🧵 \`${input.sessionId}\``))
@@ -305,11 +303,35 @@ export function buildStatusCard(input: StatusCardInput): object {
   ], `${status} · ${input.model}`)
 }
 
+/** Build the first-run card; its optional button proves callbacks work. */
+export function buildSetupCard(input: { verified?: boolean; project: string }): object {
+  const verified = input.verified ?? false
+  return card(verified ? '✅ Lark Bridge 全部就绪' : '🎉 Lark Bridge 已就绪', verified ? 'green' : 'blue', [
+    markdown([
+      '✅ 已接收你的飞书消息',
+      '✅ 机器人可以发送消息',
+      `${verified ? '✅ 卡片按钮已验证' : '🧪 卡片按钮可选验证'}`,
+      `📦 默认 Project：**${bounded(redactSecrets(input.project), 80)}**`,
+      '',
+      verified
+        ? '现在可以直接发送任务；把机器人加入群后，第一次 @它即可自动绑定。'
+        : '现在就能直接发送任务。下面的按钮仅用于检查卡片回调，不影响使用。',
+    ].join('\n')),
+    ...(verified ? [] : [buttonRow([{
+      label: '测试卡片按钮（可选）',
+      type: 'primary',
+      value: { bridge: 'dsh-lark-bridge', action: 'setup-verify' },
+    }], 'bridge_setup_verify')]),
+  ], verified ? '全部就绪，可以开始使用' : '已就绪，可以直接发送任务')
+}
+
 export function parseBridgeAction(value: unknown): BridgeAction | undefined {
   if (typeof value !== 'object' || value === null) return undefined
   const action = value as Record<string, unknown>
   if (action.bridge !== 'dsh-lark-bridge' || typeof action.action !== 'string') return undefined
   switch (action.action) {
+    case 'setup-verify':
+      return action as BridgeAction
     case 'stop':
     case 'new':
     case 'status':

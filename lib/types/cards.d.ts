@@ -42,4 +42,9 @@ export interface StatusCardInput {
     preset: CardPreset;
 }
 export declare function buildStatusCard(input: StatusCardInput): object;
+/** Build the first-run card; its optional button proves callbacks work. */
+export declare function buildSetupCard(input: {
+    verified?: boolean;
+    project: string;
+}): object;
 export declare function parseBridgeAction(value: unknown): BridgeAction | undefined;

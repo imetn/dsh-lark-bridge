@@ -22,6 +22,10 @@
     "bot"
   ],
   "type": "module",
+  "bin": {
+    "dsh-lark": "./lib/cli.js",
+    "dsh-lark-bridge": "./lib/cli.js"
+  },
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",
   "exports": {
@@ -61,6 +65,7 @@
     "@deepseek-ai/dsh-agent-default-model": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-attachment": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-commands": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-credentials": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-llm": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-session": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-session-persistence": "^0.1.0-rc.6",
@@ -72,20 +77,30 @@
     "@deepseek-ai/schemastery": "^3.18.1"
   },
   "peerDependenciesMeta": {
-    "@deepseek-ai/dsh-attachment": { "optional": true },
-    "@deepseek-ai/dsh-commands": { "optional": true },
-    "@deepseek-ai/dsh-session-persistence": { "optional": true },
-    "@deepseek-ai/dsh-user-approval": { "optional": true },
-    "@deepseek-ai/dsh-user-questions": { "optional": true }
+    "@deepseek-ai/dsh-attachment": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-commands": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-session-persistence": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-user-approval": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-user-questions": {
+      "optional": true
+    }
   },
   "devDependencies": {
-    "@larksuiteoapi/node-sdk": "1.73.0",
     "@deepseek-ai/cordis": "4.0.1",
     "@deepseek-ai/cordis-plugin-loader": "1.0.2",
     "@deepseek-ai/dsh-agent": "0.1.0-rc.6",
     "@deepseek-ai/dsh-agent-default-model": "0.1.0-rc.6",
     "@deepseek-ai/dsh-attachment": "0.1.0-rc.6",
     "@deepseek-ai/dsh-commands": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-credentials": "0.1.0-rc.6",
     "@deepseek-ai/dsh-llm": "0.1.0-rc.6",
     "@deepseek-ai/dsh-session": "0.1.0-rc.6",
     "@deepseek-ai/dsh-session-persistence": "0.1.0-rc.6",
@@ -95,10 +110,12 @@
     "@deepseek-ai/dsh-user-approval": "0.1.0-rc.6",
     "@deepseek-ai/dsh-user-questions": "0.1.0-rc.6",
     "@deepseek-ai/schemastery": "3.18.1",
+    "@larksuiteoapi/node-sdk": "1.73.0",
     "@types/node": "^24.0.0",
     "esbuild": "0.28.1",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.8"
+    "vitest": "^4.1.8",
+    "yaml": "2.8.1"
   },
   "packageManager": "pnpm@11.21.0"
 }

@@ -1,12 +1,18 @@
-import { resolve } from 'node:path'
+import type { Context } from '@deepseek-ai/cordis'
+import { credentialRef } from '@deepseek-ai/dsh-credentials'
+import { homedir } from 'node:os'
+import { join, resolve } from 'node:path'
 import Schema from '@deepseek-ai/schemastery'
-import type { CardPreset, GroupSessionScope, ResolvedConfig, ResolvedProject } from './types.js'
+import type { CardPreset, GroupSessionScope, LarkBrand, ResolvedConfig, ResolvedProject } from './types.js'
 import { isInside, parseBooleanEnv, parseCsv } from './security.js'
 
 /** Public Cordis configuration. Credentials should normally come from environment variables. */
 export interface Config {
   appId?: string
   appSecret?: string
+  appSecretRef?: string
+  brand?: LarkBrand
+  statePath?: string
   allowedOpenIds?: string[]
   allowedChatIds?: string[]
   allowAllUsers?: boolean
@@ -61,7 +67,10 @@ const ProjectSchema: Schema<ProjectConfig> = Schema.object({
 
 export const ConfigSchema: Schema<Config> = Schema.object({
   appId: Schema.string().default(''),
-  appSecret: Schema.string().default(''),
+  appSecret: Schema.string().role('secret').default(''),
+  appSecretRef: Schema.string().role('credential-ref').default('DSH_LARK_APP_SECRET'),
+  brand: Schema.union(['feishu', 'lark', 'larkoffice'] as const).default('feishu'),
+  statePath: Schema.string().default(''),
   allowedOpenIds: Schema.array(Schema.string()).default([]),
   allowedChatIds: Schema.array(Schema.string()).default([]),
   allowAllUsers: Schema.boolean().default(false),
@@ -139,9 +148,15 @@ function resolveProject(
 /** Resolve schema-normalized config with environment-only secrets and allowlists. */
 export function resolveConfig(config: Config, env: NodeJS.ProcessEnv = process.env): ResolvedConfig {
   const appId = (config.appId || env.DSH_LARK_APP_ID || '').trim()
-  const appSecret = (config.appSecret || env.DSH_LARK_APP_SECRET || '').trim()
+  const appSecretRef = (config.appSecretRef || 'DSH_LARK_APP_SECRET').trim()
+  const appSecret = (config.appSecret || env[appSecretRef] || env.DSH_LARK_APP_SECRET || '').trim()
   if (appId === '') throw new Error('dsh-lark-bridge: missing app id (set DSH_LARK_APP_ID)')
-  if (appSecret === '') throw new Error('dsh-lark-bridge: missing app secret (set DSH_LARK_APP_SECRET)')
+  if (appSecretRef === '') throw new Error('dsh-lark-bridge: appSecretRef cannot be empty')
+  credentialRef(appSecretRef)
+  if (appSecret === '') throw new Error(`dsh-lark-bridge: missing app secret (set credential ${appSecretRef})`)
+
+  const dshHome = resolve(env.DSH_HOME?.trim() || join(homedir(), '.dsh'))
+  const statePath = resolve(config.statePath || join(dshHome, 'lark-bridge', `${appId}.json`))
 
   const cwd = resolve(config.cwd || process.cwd())
   const workspaceRoot = resolve(config.workspaceRoot || cwd)
@@ -195,6 +210,9 @@ export function resolveConfig(config: Config, env: NodeJS.ProcessEnv = process.e
   return {
     appId,
     appSecret,
+    appSecretRef,
+    brand: config.brand ?? 'feishu',
+    statePath,
     allowedOpenIds: unique([...(config.allowedOpenIds ?? []), ...parseCsv(env.DSH_LARK_ALLOWED_OPEN_IDS)]),
     allowedChatIds,
     allowAllUsers: Boolean(config.allowAllUsers) || parseBooleanEnv(env.DSH_LARK_ALLOW_ALL_USERS),
@@ -219,4 +237,19 @@ export function resolveConfig(config: Config, env: NodeJS.ProcessEnv = process.e
     defaultProjectId,
     projects,
   }
+}
+
+/** Resolve a credential reference through the Harness credential provider before booting the channel. */
+export async function resolveRuntimeConfig(
+  ctx: Context,
+  config: Config,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<ResolvedConfig> {
+  const appSecretRef = (config.appSecretRef || 'DSH_LARK_APP_SECRET').trim()
+  credentialRef(appSecretRef)
+  const directSecret = (config.appSecret || env[appSecretRef] || env.DSH_LARK_APP_SECRET || '').trim()
+  const resolvedSecret = directSecret === ''
+    ? (await ctx.credentials.resolve(credentialRef(appSecretRef)))?.value ?? ''
+    : directSecret
+  return resolveConfig({ ...config, appSecret: resolvedSecret, appSecretRef }, env)
 }

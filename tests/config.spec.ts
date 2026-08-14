@@ -2,7 +2,8 @@ import { mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { resolveConfig } from '../src/config.js'
+import type { Context } from '@deepseek-ai/cordis'
+import { resolveConfig, resolveRuntimeConfig } from '../src/config.js'
 
 const roots: string[] = []
 
@@ -38,11 +39,32 @@ describe('resolveConfig', () => {
     expect(config.requireMention).toBe(true)
     expect(config.groupSessionScope).toBe('thread')
     expect(config.cardPreset).toBe('standard')
+    expect(config.appSecretRef).toBe('DSH_LARK_APP_SECRET')
+    expect(config.brand).toBe('feishu')
+    expect(config.statePath).toContain('lark-bridge/cli_test.json')
     expect(config.projects).toMatchObject([{
       id: 'default',
       chatIds: ['oc_team'],
       cardPreset: 'standard',
     }])
+  })
+
+  it('resolves the App Secret through the official Harness credential seam', async () => {
+    const cwd = await root()
+    const ctx = {
+      credentials: {
+        resolve: async (ref: string) => ref === 'DSH_LARK_TEST_SECRET'
+          ? { value: 'credential-value', source: 'file' }
+          : undefined,
+      },
+    } as unknown as Context
+    const config = await resolveRuntimeConfig(ctx, {
+      appId: 'cli_test',
+      appSecretRef: 'DSH_LARK_TEST_SECRET',
+      cwd,
+    }, {})
+    expect(config.appSecret).toBe('credential-value')
+    expect(config.appSecretRef).toBe('DSH_LARK_TEST_SECRET')
   })
 
   it('keeps cwd and inbound storage inside workspaceRoot', async () => {

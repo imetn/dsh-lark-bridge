@@ -12,7 +12,7 @@ Do not open a public issue for an unpatched vulnerability. Use this repository's
 
 The Bridge intentionally gives an allowed Lark user a remote entry point into a local Harness Agent. Treat every allowed `open_id` as an operator with the practical reach of that Harness profile.
 
-The Bridge defaults to empty user and group allowlists, requires group mentions, intersects global and Project-specific user policies, rechecks interactive operators, preserves Harness approval decisions, isolates group work by topic/thread, and constrains file delivery to the selected Project workspace. It does not replace Harness sandboxing, approval policy, operating-system access control, or secure secret storage.
+The Bridge starts with no owner, requires group mentions, intersects global and Project-specific user policies, rechecks interactive operators, preserves Harness approval decisions, isolates group work by topic/thread, and constrains file delivery to the selected Project workspace. The first owner comes from the official app-creation identity or a one-time pairing code. The Bridge does not replace Harness sandboxing, approval policy, operating-system access control, or secure secret storage.
 
 Project, Session, and chat boundaries are different:
 
@@ -24,7 +24,7 @@ Project, Session, and chat boundaries are different:
 ## Deployment checklist
 
 - Rotate any credential that has appeared in chat, logs, shell history, screenshots, or commits.
-- Supply `DSH_LARK_APP_SECRET` through a secret manager or protected process environment.
+- Keep the App Secret in Harness's owner-only `.credentials.yaml`, a secret manager, or a protected process environment.
 - Keep `allowAllUsers` and `allowAllGroups` disabled.
 - Use both a global `allowedOpenIds` list and narrower Project lists where projects have different operators.
 - Bind each group to exactly one Project and prefer private topic groups.

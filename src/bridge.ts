@@ -20,6 +20,7 @@ import type {
 import type {} from '@deepseek-ai/dsh-user-questions'
 import {
   createLarkChannel,
+  Domain,
   LoggerLevel,
   type CardActionEvent,
   type NormalizedMessage,
@@ -29,6 +30,7 @@ import {
 import {
   buildApprovalCard,
   buildQuestionCard,
+  buildSetupCard,
   buildStatusCard,
   buildTurnCard,
   parseBridgeAction,
@@ -45,6 +47,7 @@ import {
   resolveOutboundFile,
   saveInboundFile,
 } from './security.js'
+import { BridgeStateStore } from './state.js'
 import type {
   BridgeAction,
   CardPreset,
@@ -116,6 +119,8 @@ const HELP_TEXT = `## DeepSeek Harness Lark Bridge
 - \`/resume <session-id>\`：恢复一个历史 Session
 - \`/projects\`：列出可用 Project
 - \`/project <id>\`：在私聊中切换 Project
+- \`/bind [project-id]\`：多 Project 时显式绑定当前群；只有一个 Project 时首次 @机器人会自动绑定
+- \`/unbind\`：解除当前群的动态绑定
 - \`/view compact|standard|developer\`：切换当前 Session 的卡片密度
 - \`/commands\`：列出 Harness 原生命令
 - \`/help\`：显示本说明
@@ -128,16 +133,14 @@ const DEFAULT_CHANNEL_FACTORY: ChannelFactory = config => {
     appSecret: config.appSecret,
     transport: 'websocket',
     source: 'dsh-lark-bridge',
+    domain: config.brand === 'lark' ? Domain.Lark : Domain.Feishu,
     loggerLevel: LoggerLevel.warn,
     handshakeTimeoutMs: 15_000,
     policy: {
-      dmMode: config.allowAllUsers ? 'open' : 'allowlist',
-      dmAllowlist: config.allowedOpenIds,
-      groupAllowlist: config.allowAllGroups
-        ? undefined
-        : config.allowedChatIds.length > 0
-          ? config.allowedChatIds
-          : ['__dsh_lark_bridge_no_groups__'],
+      // Pairing and first-time group binding must reach the Bridge before a
+      // sender/chat id exists in durable state. The gate below stays closed
+      // for every other message and action.
+      dmMode: 'open',
       requireMention: config.requireMention,
       respondToMentionAll: false,
     },
@@ -233,22 +236,10 @@ function terminalOutcome(reason: Extract<SessionEvent, { type: 'turn/end' }>['da
   }
 }
 
-function isAuthorizedAction(entry: BridgeSession, openId: string, chatId: string, config: ResolvedConfig): boolean {
-  if (entry.route.chatId !== chatId) return false
-  const userAllowed = isOpenIdAllowed(
-    openId,
-    config.allowAllUsers,
-    config.allowedOpenIds,
-    entry.project.allowedOpenIds,
-  )
-  if (!userAllowed) return false
-  if (entry.route.chatType === 'group' && config.groupSessionScope === 'chat') return true
-  return entry.route.ownerOpenId === openId
-}
-
 /** Bidirectional adapter between the official Lark Channel API and native Harness agents. */
 export class LarkBridge {
   private readonly channel: LarkChannelLike
+  private readonly state: BridgeStateStore
   private readonly sessions = new Map<string, BridgeSession>()
   private readonly creating = new Map<string, Promise<BridgeSession>>()
   private readonly agents = new Map<string, BridgeSession>()
@@ -267,11 +258,28 @@ export class LarkBridge {
     channelFactory: ChannelFactory = DEFAULT_CHANNEL_FACTORY,
   ) {
     this.channel = channelFactory(config)
+    this.state = new BridgeStateStore(config.statePath)
+  }
+
+  private isGloballyAllowed(openId: string): boolean {
+    return this.config.allowAllUsers
+      || this.config.allowedOpenIds.includes(openId)
+      || this.state.isOwner(openId)
+  }
+
+  private isAuthorizedAction(entry: BridgeSession, openId: string, chatId: string): boolean {
+    if (entry.route.chatId !== chatId || !this.isGloballyAllowed(openId)) return false
+    if (entry.project.allowedOpenIds.length > 0 && !entry.project.allowedOpenIds.includes(openId)) return false
+    if (entry.route.chatType === 'group' && this.config.groupSessionScope === 'chat') return true
+    return entry.route.ownerOpenId === openId
   }
 
   private projectForMessage(message: Pick<NormalizedMessage, 'chatType' | 'chatId' | 'senderId'>): ResolvedProject {
     if (message.chatType === 'group') {
-      const bound = this.config.projects.find(project => project.chatIds.includes(message.chatId))
+      const dynamicProjectId = this.state.projectForChat(message.chatId)
+      const staticProject = this.config.projects.find(project => project.chatIds.includes(message.chatId))
+      const dynamicProject = this.config.projects.find(project => project.id === dynamicProjectId)
+      const bound = staticProject ?? dynamicProject
       if (bound !== undefined) {
         if (!this.canUseProject(bound, message.senderId)) throw new Error('you are not allowed to use the project bound to this group')
         return bound
@@ -297,6 +305,38 @@ export class LarkBridge {
     return this.config.projects.filter(project => this.canUseProject(project, openId))
   }
 
+  private async ensureGroupBinding(message: NormalizedMessage): Promise<boolean> {
+    if (message.chatType !== 'group' || this.config.allowAllGroups) return true
+    const staticProject = this.config.projects.find(project => project.chatIds.includes(message.chatId))
+    const dynamicProjectId = this.state.projectForChat(message.chatId)
+    if (staticProject !== undefined) return true
+    if (dynamicProjectId !== undefined) {
+      const dynamicProject = this.config.projects.find(project => project.id === dynamicProjectId)
+      if (dynamicProject !== undefined) return true
+      await this.state.unbindChat(message.chatId)
+    }
+    if (!message.mentionedBot) return false
+
+    const candidates = this.availableProjects(message.senderId)
+    if (candidates.length !== 1) {
+      const ids = candidates.map(project => `\`${project.id}\``).join('、') || '无'
+      await this.safeSend(message.chatId, {
+        markdown: `这个机器人可访问 ${candidates.length} 个 Project，首次使用请明确发送 \`@机器人 /bind <project-id>\`。可选：${ids}`,
+      }, message)
+      return false
+    }
+
+    const project = candidates[0]!
+    await this.state.bindChat(message.chatId, project.id)
+    if (message.content.trim() === '' && message.resources.length === 0) {
+      await this.safeSend(message.chatId, {
+        markdown: `✅ 已自动把当前群绑定到 **${project.name}**（\`${project.id}\`）。现在可以 @机器人发送任务。`,
+      }, message)
+      return false
+    }
+    return true
+  }
+
   private shouldReplyInThread(message: Pick<NormalizedMessage, 'chatType' | 'threadId' | 'rootId'>): boolean {
     return message.chatType === 'group'
       && (this.config.groupSessionScope === 'thread' || message.threadId !== undefined || message.rootId !== undefined)
@@ -305,6 +345,7 @@ export class LarkBridge {
   async start(): Promise<void> {
     if (this.connected) return
     this.stopped = false
+    await this.state.refresh()
     const persistence = this.ctx.get('sessionPersistence')
     this.headers = persistence === undefined ? [] : await persistence.list()
 
@@ -352,6 +393,23 @@ export class LarkBridge {
     }
     this.connected = true
     this.ctx.logger.info('[dsh-lark-bridge] 已连接飞书机器人 %s', this.channel.botIdentity?.name ?? 'unknown')
+    await this.sendPendingWelcomes()
+  }
+
+  private async sendPendingWelcomes(): Promise<void> {
+    await this.state.refresh()
+    const pending = this.state.snapshot().pendingWelcomeOwners
+    if (pending.length === 0) return
+    const project = this.config.projects.find(item => item.id === this.config.defaultProjectId) ?? this.config.projects[0]!
+    const verified = this.state.snapshot().cardVerifiedAt !== undefined
+    for (const openId of pending) {
+      try {
+        await this.channel.send(openId, { card: buildSetupCard({ project: project.name, verified }) })
+        await this.state.markWelcomeSent(openId)
+      } catch (error) {
+        this.ctx.logger.warn('[dsh-lark-bridge] 无法发送首次欢迎卡片：owner=%s error=%s', openId, errorMessage(error))
+      }
+    }
   }
 
   async stop(): Promise<void> {
@@ -389,12 +447,35 @@ export class LarkBridge {
 
   private async onMessage(message: NormalizedMessage): Promise<void> {
     try {
+      await this.state.refresh()
+      const text = message.content.trim()
+      if (/^\/claim(?:\s|$)/iu.test(text)) {
+        await this.handleClaim(message, text)
+        return
+      }
+      if (!this.isGloballyAllowed(message.senderId)) {
+        this.ctx.logger.warn(
+          '[dsh-lark-bridge] 已拒绝未授权飞书用户：sender=%s chat=%s message=%s',
+          message.senderId,
+          message.chatId,
+          message.messageId,
+        )
+        return
+      }
+      if (message.chatType === 'group' && /^\/bind(?:\s|$)/iu.test(text)) {
+        await this.handleBind(message, text)
+        return
+      }
+      if (message.chatType === 'group' && /^\/unbind(?:\s|$)/iu.test(text)) {
+        await this.handleUnbind(message)
+        return
+      }
+      if (!(await this.ensureGroupBinding(message))) return
       const project = this.projectForMessage(message)
       const key = originKey(message, this.config.groupSessionScope, project.id)
       const pending = [...this.pendingQuestions.values()].find(item => (
         item.entry.key === key && item.expectedOpenId === message.senderId
       ))
-      const text = message.content.trim()
       if (pending !== undefined && !text.startsWith('/stop')) {
         if (text === '') {
           await this.safeSend(message.chatId, { markdown: '请发送文字回答，或点击卡片中的选项。' }, message)
@@ -422,6 +503,81 @@ export class LarkBridge {
         markdown: `❌ 无法把这条消息交给 DeepSeek Harness：${bounded(errorMessage(error), 600)}`,
       }, message)
     }
+  }
+
+  private async handleClaim(message: NormalizedMessage, line: string): Promise<void> {
+    if (message.chatType !== 'p2p') {
+      await this.safeSend(message.chatId, { markdown: '为避免把配对码留在群里，请私聊机器人完成 `/claim`。' }, message)
+      return
+    }
+    const token = line.trim().split(/\s+/u).slice(1).join('')
+    if (token === '') {
+      await this.safeSend(message.chatId, { markdown: '用法：`/claim <一次性配对码>`' }, message)
+      return
+    }
+    const result = await this.state.claim(token, message.senderId)
+    if (result.status === 'claimed' || result.status === 'already-owner') {
+      const project = this.projectForMessage(message)
+      await this.safeSend(message.chatId, {
+        card: buildSetupCard({
+          project: project.name,
+          verified: result.status === 'already-owner' && this.state.snapshot().cardVerifiedAt !== undefined,
+        }),
+      }, message)
+      this.ctx.logger.info('[dsh-lark-bridge] 飞书用户已完成本机配对：sender=%s', message.senderId)
+      return
+    }
+    if (result.status === 'invalid') {
+      await this.safeSend(message.chatId, {
+        markdown: result.attemptsRemaining > 0
+          ? `配对码不正确，还可尝试 ${result.attemptsRemaining} 次。`
+          : '配对尝试次数已用完，请在本机重新运行 `dsh-lark pair`。',
+      }, message)
+      return
+    }
+    await this.safeSend(message.chatId, {
+      markdown: result.status === 'expired'
+        ? '配对码已过期，请在本机重新运行 `dsh-lark pair`。'
+        : '当前没有等待使用的配对码，请先在本机运行 `dsh-lark pair`。',
+    }, message)
+  }
+
+  private async handleBind(message: NormalizedMessage, line: string): Promise<void> {
+    const argument = line.trim().split(/\s+/u).slice(1).join(' ').trim()
+    const existingStatic = this.config.projects.find(project => project.chatIds.includes(message.chatId))
+    const existingDynamicId = this.state.projectForChat(message.chatId)
+    const existing = existingStatic ?? this.config.projects.find(project => project.id === existingDynamicId)
+    if (existing !== undefined) {
+      await this.safeSend(message.chatId, {
+        markdown: `这个群已经绑定到 **${existing.name}**（\`${existing.id}\`）。如需更换，请先发送 \`/unbind\`。`,
+      }, message)
+      return
+    }
+    const targetId = argument || this.config.defaultProjectId
+    const target = this.availableProjects(message.senderId).find(project => project.id === targetId)
+    if (target === undefined) {
+      const ids = this.availableProjects(message.senderId).map(project => `\`${project.id}\``).join('、')
+      await this.safeSend(message.chatId, { markdown: `找不到可绑定的 Project \`${targetId}\`。可选：${ids || '无'}` }, message)
+      return
+    }
+    await this.state.bindChat(message.chatId, target.id)
+    await this.safeSend(message.chatId, {
+      markdown: `✅ 已把当前群绑定到 **${target.name}**（\`${target.id}\`）。普通群请继续 @机器人；话题群会按话题隔离 Session。`,
+    }, message)
+  }
+
+  private async handleUnbind(message: NormalizedMessage): Promise<void> {
+    const staticBinding = this.config.projects.find(project => project.chatIds.includes(message.chatId))
+    if (staticBinding !== undefined) {
+      await this.safeSend(message.chatId, {
+        markdown: `该群通过静态配置绑定到 \`${staticBinding.id}\`，请从 Profile 配置中移除对应 chat ID。`,
+      }, message)
+      return
+    }
+    const removed = await this.state.unbindChat(message.chatId)
+    await this.safeSend(message.chatId, {
+      markdown: removed ? '✅ 已解除当前群的 Project 绑定。' : '当前群没有动态 Project 绑定。',
+    }, message)
   }
 
   private async inboundContent(entry: BridgeSession, message: NormalizedMessage): Promise<ContentBlock[]> {
@@ -503,7 +659,7 @@ export class LarkBridge {
         const pending = [...this.pendingApprovals.values()].find(item => (
           item.entry.key === key
           && item.expectedOpenId === message.senderId
-          && isAuthorizedAction(item.entry, message.senderId, message.chatId, this.config)
+          && this.isAuthorizedAction(item.entry, message.senderId, message.chatId)
         ))
         if (pending === undefined) {
           await this.safeSend(message.chatId, { markdown: '当前飞书会话没有等待处理的工具审批。' }, message)
@@ -1002,7 +1158,7 @@ export class LarkBridge {
   }
 
   private async askApproval(entry: BridgeSession, request: ApprovalRequest): Promise<ApprovalOutcome> {
-    if (!isAuthorizedAction(entry, entry.route.ownerOpenId, entry.route.chatId, this.config)) return 'unavailable'
+    if (!this.isAuthorizedAction(entry, entry.route.ownerOpenId, entry.route.chatId)) return 'unavailable'
     const token = randomUUID()
     return await new Promise<ApprovalOutcome>((resolve) => {
       const pending: PendingApproval = {
@@ -1124,12 +1280,20 @@ export class LarkBridge {
     pending.reject(error)
   }
 
-  private onCardAction(event: CardActionEvent): void {
+  private async onCardAction(event: CardActionEvent): Promise<void> {
+    await this.state.refresh()
     const action = parseBridgeAction(event.action.value)
     if (action === undefined) return
+    if (action.action === 'setup-verify') {
+      if (!this.isGloballyAllowed(event.operator.openId)) return
+      await this.state.markCardVerified()
+      const project = this.config.projects.find(item => item.id === this.config.defaultProjectId) ?? this.config.projects[0]!
+      await this.channel.updateCard(event.messageId, buildSetupCard({ project: project.name, verified: true }))
+      return
+    }
     if (action.action === 'approval') {
       const pending = this.pendingApprovals.get(action.token)
-      if (pending === undefined || !isAuthorizedAction(pending.entry, event.operator.openId, event.chatId, this.config)
+      if (pending === undefined || !this.isAuthorizedAction(pending.entry, event.operator.openId, event.chatId)
         || event.operator.openId !== pending.expectedOpenId) return
       this.settleApproval(pending, action.decision === 'allow' ? 'allowed-once' : 'rejected')
       return
@@ -1139,7 +1303,7 @@ export class LarkBridge {
       return
     }
     const entry = this.agents.get(action.sessionId)
-    if (entry === undefined || !isAuthorizedAction(entry, event.operator.openId, event.chatId, this.config)) return
+    if (entry === undefined || !this.isAuthorizedAction(entry, event.operator.openId, event.chatId)) return
     if (action.action === 'stop') {
       entry.handle.agent.cancel({ kind: 'user' })
       void this.channel.send(entry.route.chatId, { markdown: '⏹️ 已发送停止请求。' }, this.replyOptions(entry)).catch(error => {
@@ -1171,7 +1335,7 @@ export class LarkBridge {
     action: Extract<BridgeAction, { action: 'question-option' | 'question-submit' }>,
   ): void {
     const pending = this.pendingQuestions.get(action.token)
-    if (pending === undefined || !isAuthorizedAction(pending.entry, event.operator.openId, event.chatId, this.config)
+    if (pending === undefined || !this.isAuthorizedAction(pending.entry, event.operator.openId, event.chatId)
       || event.operator.openId !== pending.expectedOpenId) return
     if (action.action === 'question-option') {
       const option = pending.question.options?.[action.index]
@@ -1210,12 +1374,10 @@ export class LarkBridge {
     if (event.action !== 'added' || !['CrossMark', 'STOP', 'NO'].includes(event.emojiType)) return
     const entry = [...this.sessions.values()].find(item => item.progress?.progressMessageId === event.messageId)
     if (entry === undefined) return
-    const allowed = isOpenIdAllowed(
-      event.operator.openId,
-      this.config.allowAllUsers,
-      this.config.allowedOpenIds,
-      entry.project.allowedOpenIds,
-    )
+    const allowed = isOpenIdAllowed(event.operator.openId, this.config.allowAllUsers, [
+      ...this.config.allowedOpenIds,
+      ...this.state.snapshot().owners,
+    ], entry.project.allowedOpenIds)
     if (!allowed || (this.config.groupSessionScope !== 'chat' && entry.route.ownerOpenId !== event.operator.openId)) return
     entry.handle.agent.cancel({ kind: 'user' })
   }

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   buildApprovalCard,
   buildQuestionCard,
+  buildSetupCard,
   buildTurnCard,
   parseBridgeAction,
 } from '../src/cards.js'
@@ -94,6 +95,35 @@ describe('Feishu card builders', () => {
     expect(developer).toContain('缓存 token')
   })
 
+  it('does not repeat the replied-to task inside progress cards', () => {
+    const prompt = '这段原始任务只应出现在飞书的引用回复中'
+    const card = buildTurnCard({
+      progress: {
+        turn: 1,
+        startedAt: 1,
+        prompt,
+        visibleText: '任务完成。',
+        tools: [],
+        inputTokens: 10,
+        outputTokens: 5,
+        cacheReadTokens: 0,
+        terminal: true,
+      },
+      sessionId: 's1',
+      cwd: '/tmp/project',
+      model: 'deepseek-v4-flash',
+      project: 'Demo',
+      preset: 'developer',
+      now: 2_001,
+      outcome: 'completed',
+      maxBodyChars: 12_000,
+    })
+    const json = JSON.stringify(card)
+    expect(json).not.toContain('**任务**')
+    expect(json).not.toContain(prompt)
+    expect(json).toContain('任务完成。')
+  })
+
   it('renders multi-select questions with explicit submit control', () => {
     const card = buildQuestionCard({
       token: 'q1',
@@ -123,6 +153,19 @@ describe('Feishu card builders', () => {
     expect(parseBridgeAction({ bridge: 'dsh-lark-bridge', action: 'view', sessionId: 's' })).toEqual({
       bridge: 'dsh-lark-bridge', action: 'view', sessionId: 's',
     })
+    expect(parseBridgeAction({ bridge: 'dsh-lark-bridge', action: 'setup-verify' })).toEqual({
+      bridge: 'dsh-lark-bridge', action: 'setup-verify',
+    })
+  })
+
+  it('renders a one-click setup callback check', () => {
+    const pending = JSON.stringify(buildSetupCard({ project: 'Demo' }))
+    expect(pending).toContain('测试卡片按钮（可选）')
+    expect(pending).toContain('现在就能直接发送任务')
+    expect(pending).toContain('setup-verify')
+    const verified = JSON.stringify(buildSetupCard({ project: 'Demo', verified: true }))
+    expect(verified).toContain('全部就绪')
+    expect(verified).not.toContain('setup-verify')
   })
 
   it('keeps every interactive element id unique across multi-row questions', () => {

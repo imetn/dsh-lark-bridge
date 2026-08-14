@@ -6,6 +6,7 @@ export * from './cards.js';
 export * from './config.js';
 export * from './identity.js';
 export * from './security.js';
+export * from './state.js';
 export type * from './types.js';
 export declare const name = "dsh-lark-bridge";
 export declare const inject: string[];

@@ -1,6 +1,7 @@
 import { build } from 'esbuild'
 import {
   existsSync,
+  chmodSync,
   mkdirSync,
   readFileSync,
   realpathSync,
@@ -13,6 +14,15 @@ import { dirname, join, resolve } from 'node:path'
 mkdirSync('lib', { recursive: true })
 rmSync('lib/index.js.map', { force: true })
 
+const commonBanner = [
+  "import { createRequire as __createRequire } from 'node:module';",
+  "import { fileURLToPath as __fileURLToPath } from 'node:url';",
+  "import { dirname as __pathDirname } from 'node:path';",
+  'const require = __createRequire(import.meta.url);',
+  'const __filename = __fileURLToPath(import.meta.url);',
+  'const __dirname = __pathDirname(__filename);',
+].join('\n')
+
 const result = await build({
   entryPoints: ['src/index.ts'],
   outfile: 'lib/index.js',
@@ -21,14 +31,7 @@ const result = await build({
   platform: 'node',
   target: ['node22'],
   banner: {
-    js: [
-      "import { createRequire as __createRequire } from 'node:module';",
-      "import { fileURLToPath as __fileURLToPath } from 'node:url';",
-      "import { dirname as __pathDirname } from 'node:path';",
-      'const require = __createRequire(import.meta.url);',
-      'const __filename = __fileURLToPath(import.meta.url);',
-      'const __dirname = __pathDirname(__filename);',
-    ].join('\n'),
+    js: commonBanner,
   },
   sourcemap: false,
   external: ['@deepseek-ai/*'],
@@ -39,6 +42,23 @@ const result = await build({
   metafile: true,
   logLevel: 'info',
 })
+
+const cliResult = await build({
+  entryPoints: ['src/cli.ts'],
+  outfile: 'lib/cli.js',
+  bundle: true,
+  format: 'esm',
+  platform: 'node',
+  target: ['node22'],
+  banner: { js: `#!/usr/bin/env node\n${commonBanner}` },
+  sourcemap: false,
+  minifySyntax: true,
+  minifyWhitespace: true,
+  legalComments: 'external',
+  metafile: true,
+  logLevel: 'info',
+})
+chmodSync('lib/cli.js', 0o755)
 
 const licenseCandidates = ['LICENSE', 'LICENSE.md', 'LICENSE.txt', 'LICENCE', 'LICENCE.md', 'COPYING']
 const bundledPackages = new Map()
@@ -53,7 +73,7 @@ function findPackageRoot(input) {
   return undefined
 }
 
-for (const input of Object.keys(result.metafile.inputs)) {
+for (const input of new Set([...Object.keys(result.metafile.inputs), ...Object.keys(cliResult.metafile.inputs)])) {
   if (!input.includes('node_modules/')) continue
   const packageRoot = findPackageRoot(input)
   if (packageRoot === undefined) continue

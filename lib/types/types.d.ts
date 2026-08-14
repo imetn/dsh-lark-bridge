@@ -1,6 +1,7 @@
 import type { EventMap, LarkChannel, SendInput, SendOptions, SendResult } from '@larksuiteoapi/node-sdk';
 export type CardPreset = 'compact' | 'standard' | 'developer';
 export type GroupSessionScope = 'chat' | 'sender' | 'thread';
+export type LarkBrand = 'feishu' | 'lark' | 'larkoffice';
 /** One stable Harness project exposed through one or more Lark chats. */
 export interface ResolvedProject {
     id: string;
@@ -18,6 +19,9 @@ export interface ResolvedProject {
 export interface ResolvedConfig {
     appId: string;
     appSecret: string;
+    appSecretRef: string;
+    brand: LarkBrand;
+    statePath: string;
     allowedOpenIds: string[];
     allowedChatIds: string[];
     allowAllUsers: boolean;
@@ -78,6 +82,9 @@ export type BridgeAction = {
     bridge: 'dsh-lark-bridge';
     action: 'stop' | 'new' | 'status' | 'view';
     sessionId: string;
+} | {
+    bridge: 'dsh-lark-bridge';
+    action: 'setup-verify';
 } | {
     bridge: 'dsh-lark-bridge';
     action: 'approval';
