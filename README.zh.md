@@ -201,4 +201,4 @@ pnpm run check
 
 ## 许可证
 
-[MIT](LICENSE) © Ethan Zhao
+[MIT](LICENSE)

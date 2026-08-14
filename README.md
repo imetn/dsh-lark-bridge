@@ -201,4 +201,4 @@ Common fixes:
 
 ## License
 
-[MIT](LICENSE) © Ethan Zhao
+[MIT](LICENSE)
